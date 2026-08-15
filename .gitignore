@@ -1,0 +1,6 @@
+# staging / plaintext decoys
+*.plain
+*.dec
+*.decrypted
+/tmp/
+/decrypted/

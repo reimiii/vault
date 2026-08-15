@@ -1,0 +1,3 @@
+# no diff spam on re-encrypted blobs
+.ssh/id_ed25519 binary
+gpg/key.asc     binary
