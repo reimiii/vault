@@ -1,52 +1,89 @@
 # Vault
 
-Personal secret backup, dipakai `~/.dotfiles/setup.sh` saat setup laptop baru.
+**Encrypted-at-rest backup of personal secrets (SSH + GPG keys), kept in sync on
+GitHub and consumed by [`~/.dotfiles/setup.sh`](https://github.com/reimiii/.dotfiles)
+when setting up a new machine.**
 
-> **WARNING** — remote `reimiii/vault` ini repo **public**. Hanya commit secret yang
-> sudah dienkripsi ansible-vault. Kalau private key pernah ter-commit plaintext,
-> langsung **rotasi** — hapus/history rewrite tidak cukup.
+## Intent
 
-## Isi
+This repo is a single source of truth for the secrets you need on a fresh laptop:
 
-| Path | Isi | Di repo |
+- your **SSH private key** (Ed25519) — used for GitHub and general `ssh` auth
+- your **GPG secret key** — used for signed git commits
+- your **git identity** (`.gitconfig`) and SSH host fingerprints
+
+Nothing secret is ever stored in plaintext here.
+
+> **Security note** — the remote `reimiii/vault` is a **public** repo. This is safe
+> *only because* every secret is encrypted with ansible-vault before committing.
+> The consequence: if a private key is ever committed as plaintext, it must be
+> **rotated** (regenerated) — deleting it or rewriting history is not enough.
+
+## Contents
+
+| Path | What it is | Stored as |
 |---|---|---|
 | `.ssh/id_ed25519` | SSH private key (Ed25519) | ansible-vault encrypted |
-| `.ssh/id_ed25519.pub` | SSH public key | plaintext (publik) |
-| `.ssh/known_hosts` | sidik jari host | plaintext (publik) |
-| `gpg/key.asc` | export GPG secret key | ansible-vault encrypted |
-| `.gitconfig` | identitas git + signing key | plaintext |
+| `.ssh/id_ed25519.pub` | SSH public key | plaintext (public by design) |
+| `.ssh/known_hosts` | SSH host fingerprints | plaintext (public by design) |
+| `gpg/key.asc` | exported GPG secret key | ansible-vault encrypted |
+| `.gitconfig` | git identity + signing key | plaintext |
 
-Semua file ansible-vault pakai satu vault password (diminta `ansible-vault`).
-**Simpan password-nya di password manager** — kalau lupa, backup tidak bisa dibuka.
+All ansible-vault files share a single **vault password** (prompted by
+`ansible-vault`). Store that password in a password manager — if it is lost,
+the encrypted backups cannot be opened.
 
-## Perintah
+## Usage
 
 ```bash
-./scripts/decrypt.sh        # decrypt secret untuk dipakai/cek lokal
-./scripts/encrypt.sh        # encrypt ulang setelah edit
-./scripts/guard.sh          # verifikasi tidak ada secret plaintext
-./scripts/backup.sh         # encrypt + commit + push
-./scripts/install-hooks.sh  # pasang pre-commit guard (jalankan sekali per clone)
+./scripts/decrypt.sh        # decrypt secrets for local use/inspection
+./scripts/encrypt.sh        # re-encrypt after editing secrets (runs guard check)
+./scripts/guard.sh          # verify no secret is left in plaintext
+./scripts/backup.sh         # ensure encrypted, then commit + push
+./scripts/install-hooks.sh  # install pre-commit guard (run once per clone)
 ```
 
-## Setup laptop baru
+**Recommended safety flow:** run `./scripts/install-hooks.sh` once after every
+clone. The pre-commit hook then refuses any commit that would push a plaintext
+secret — the most common way a leak happens.
+
+## Setting up a new laptop
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/reimiii/.dotfiles/main/install.sh)
 ```
 
-Alur: clone vault (HTTPS) → minta vault password → decrypt ke temp dir → install
-`~/.ssh`, import GPG, load `ssh-agent`, pasang hook, switch remote ke SSH.
+That flow: clone vault over HTTPS → prompt for the vault password → decrypt the
+secrets to a **temp directory** (the working tree always stays encrypted) → install
+`~/.ssh` with `chmod 600` → import the GPG key → load `ssh-agent` → install the
+vault pre-commit hook → switch remotes to SSH.
 
-## Backup / restore GPG & SSH
+## Updating a key (SSH or GPG)
+
+1. Copy the new key into the vault (below).
+2. Run `./scripts/encrypt.sh` (enter the vault password).
+3. Run `./scripts/backup.sh` to commit and push.
+
+SSH:
+
+```bash
+cp ~/.ssh/id_ed25519 vault/.ssh/id_ed25519
+cp ~/.ssh/id_ed25519.pub vault/.ssh/id_ed25519.pub
+```
+
+GPG:
 
 ```bash
 gpg --list-secret-keys --keyid-format LONG
-gpg --export-secret-keys $ID > gpg/key.asc   # lalu ./scripts/encrypt.sh
-gpg --import gpg/key.asc
+gpg --export-secret-keys <ID> > vault/gpg/key.asc   # <ID> = fingerprint after the slash
+```
 
-cp ~/.ssh/id_ed25519 vault/.ssh/id_ed25519   # lalu ./scripts/encrypt.sh
+## Restoring on the current machine
+
+```bash
+gpg --import gpg/key.asc          # after decrypting
 ssh-add ~/.ssh/id_ed25519
 ```
 
-Ingat `GPG_TTY=$(tty)` untuk prompt passphrase.
+Note: set `GPG_TTY=$(tty)` (e.g. in `~/.bashrc`) so gpg can prompt for the
+passphrase in a terminal.
